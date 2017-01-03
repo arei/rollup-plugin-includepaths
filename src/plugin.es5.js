@@ -16,6 +16,10 @@ var _fs = require('fs');
 
 var _fs2 = _interopRequireDefault(_fs);
 
+var _readPkg = require('read-pkg');
+
+var _readPkg2 = _interopRequireDefault(_readPkg);
+
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
 function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
@@ -213,12 +217,19 @@ var RollupIncludePaths = function () {
             var workingDir = process.cwd();
 
             for (var i = 0, ii = includePath.length; i < ii; i++) {
-                newPath = this.resolvePath(_path2.default.resolve(workingDir, includePath[i], file));
+                newPath = this.resolvePathWithExtensions(_path2.default.resolve(workingDir, includePath[i], file));
                 if (newPath) return newPath;
+
+                // check for package.json
+                newPath = this.resolvePath(_path2.default.resolve(workingDir, includePath[i], file, 'package.json'));
+                if (newPath) {
+                    newPath = this.searchPackageJSON(newPath);
+                    if (newPath) return newPath;
+                }
 
                 // #1 - also check for 'path/to/file/index.js'
                 // #4 - also check for 'path/to/file/index.[extensions]'
-                newPath = this.resolvePath(_path2.default.resolve(workingDir, includePath[i], file, 'index'));
+                newPath = this.resolvePathWithExtensions(_path2.default.resolve(workingDir, includePath[i], file, 'index'));
                 if (newPath) return newPath;
             }
 
@@ -250,15 +261,41 @@ var RollupIncludePaths = function () {
                 // nodejs path case
                 // require('./subfolder') in 'lib/origin.js'
                 // > lib/subfolder/index.js
-                this.resolvePath(_path2.default.join(basePath, file, 'index'))
+                this.resolvePathWithExtensions(_path2.default.join(basePath, file, 'index'))
             );
         }
 
         /**
-         * Resolve a given file path by checking if it exists. If it does not,
-         * also checks if the file exists by appending the extensions to it,
-         * i.e. checks for 'file', then 'file.js', 'file.json'
-         * and so on, until one is found.
+            * Search for a file entry point based on its package.json.
+            *
+            * @param {string} file         File path to search
+            */
+
+    }, {
+        key: 'searchPackageJSON',
+        value: function searchPackageJSON(file) {
+            var packagejson = _readPkg2.default.sync(file);
+            if (!packagejson) return false;
+
+            var newPath = void 0;
+
+            if (packagejson["jsnext:main"]) newPath = this.resolvePathWithExtensions(_path2.default.resolve(file, packagejson["jsnext:main"]));
+            if (newPath) return newPath;
+
+            if (packagejson.browser) newPath = this.resolvePathWithExtensions(_path2.default.resolve(file, packagejson.browser));
+            if (newPath) return newPath;
+
+            if (packagejson.main) newPath = this.resolvePathWithExtensions(_path2.default.resolve(file, packagejson.main));
+            if (newPath) return newPath;
+
+            if (packagejson.main) newPath = this.resolvePathWithExtensions(_path2.default.resolve(file, "index"));
+            if (newPath) return newPath;
+
+            return false;
+        }
+
+        /**
+         * Resolve a given file path by checking if it exists.
          *
          * Returns false if "file" was not found
          *
@@ -273,12 +310,34 @@ var RollupIncludePaths = function () {
                 return file;
             }
 
+            return false;
+        }
+
+        /**
+            * Resolve a given file path by checking if it exists. If it does not,
+            * also checks if the file exists by appending the extensions to it,
+            * i.e. checks for 'file', then 'file.js', 'file.json'
+            * and so on, until one is found.
+            *
+            * Returns false if "file" was not found
+            *
+            * @param {string} file
+            * @return {boolean}
+            */
+
+    }, {
+        key: 'resolvePathWithExtensions',
+        value: function resolvePathWithExtensions(file) {
+            if (this.resovlePath(file)) {
+                return file;
+            }
+
             // check different file extensions
             for (var i = 0, ii = this.extensions.length; i < ii; i++) {
                 var ext = this.extensions[i];
                 var newPath = file + ext;
 
-                if (this.fileExists(newPath)) {
+                if (this.resolvePath(newPath)) {
                     return newPath;
                 }
             }
@@ -331,5 +390,4 @@ function plugin(options) {
         }
     };
 }
-
 module.exports = exports['default'];

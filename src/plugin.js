@@ -1,5 +1,6 @@
 import path from 'path';
 import fs from 'fs';
+import readPkg from 'read-pkg';
 
 /**
  * Node.JS modules ignored in the resolveId method by default
@@ -177,12 +178,19 @@ class RollupIncludePaths {
         let workingDir = process.cwd();
 
         for (let i = 0, ii = includePath.length; i < ii ; i++) {
-            newPath = this.resolvePath(path.resolve(workingDir, includePath[i], file));
+            newPath = this.resolvePathWithExtensions(path.resolve(workingDir, includePath[i], file));
             if (newPath) return newPath;
+
+			// check for package.json
+			newPath = this.resolvePath(path.resolve(workingDir, includePath[i], file, 'package.json'));
+			if (newPath) {
+				newPath = this.searchPackageJSON(newPath);
+				if (newPath) return newPath;
+			}
 
             // #1 - also check for 'path/to/file/index.js'
             // #4 - also check for 'path/to/file/index.[extensions]'
-            newPath = this.resolvePath(path.resolve(workingDir, includePath[i], file, 'index'));
+            newPath = this.resolvePathWithExtensions(path.resolve(workingDir, includePath[i], file, 'index'));
             if (newPath) return newPath;
         }
 
@@ -211,15 +219,38 @@ class RollupIncludePaths {
             // nodejs path case
             // require('./subfolder') in 'lib/origin.js'
             // > lib/subfolder/index.js
-            this.resolvePath(path.join(basePath, file, 'index'))
+            this.resolvePathWithExtensions(path.join(basePath, file, 'index'))
         );
     }
 
+	/**
+     * Search for a file entry point based on its package.json.
+     *
+     * @param {string} file         File path to search
+     */
+	searchPackageJSON (file) {
+		let packagejson = readPkg.sync(file);
+		if (!packagejson) return false;
+
+		let newPath;
+
+		if (packagejson["jsnext:main"]) newPath = this.resolvePathWithExtensions(path.resolve(file,packagejson["jsnext:main"]));
+		if (newPath) return newPath;
+
+		if (packagejson.browser) newPath = this.resolvePathWithExtensions(path.resolve(file,packagejson.browser));
+		if (newPath) return newPath;
+
+		if (packagejson.main) newPath = this.resolvePathWithExtensions(path.resolve(file,packagejson.main));
+		if (newPath) return newPath;
+
+		if (packagejson.main) newPath = this.resolvePathWithExtensions(path.resolve(file,"index"));
+		if (newPath) return newPath;
+
+		return false;
+	}
+
     /**
-     * Resolve a given file path by checking if it exists. If it does not,
-     * also checks if the file exists by appending the extensions to it,
-     * i.e. checks for 'file', then 'file.js', 'file.json'
-     * and so on, until one is found.
+     * Resolve a given file path by checking if it exists.
      *
      * Returns false if "file" was not found
      *
@@ -231,18 +262,37 @@ class RollupIncludePaths {
             return file;
         }
 
+        return false;
+    }
+
+	/**
+     * Resolve a given file path by checking if it exists. If it does not,
+     * also checks if the file exists by appending the extensions to it,
+     * i.e. checks for 'file', then 'file.js', 'file.json'
+     * and so on, until one is found.
+     *
+     * Returns false if "file" was not found
+     *
+     * @param {string} file
+     * @return {boolean}
+     */
+    resolvePathWithExtensions(file) {
+		if (this.resovlePath(file)) {
+            return file;
+        }
+
         // check different file extensions
         for (let i = 0, ii = this.extensions.length; i < ii; i++ ) {
             let ext = this.extensions[i];
             let newPath = file + ext;
 
-            if (this.fileExists(newPath)) {
+            if (this.resolvePath(newPath)) {
                 return newPath;
             }
         }
 
         return false;
-    }
+	}
 
     /**
      * Check if "file" has one of the extensions defined in the plugin options
